@@ -972,7 +972,7 @@ class _Broker:
 
             # Adjust price to include commission (or bid-ask spread).
             # In long positions, the adjusted price is a fraction higher, and vice versa.
-            adjusted_price = self._adjusted_price(order.size, price) * self.last_conversion_rate
+            adjusted_price = self._adjusted_price(order.size, price)
             commission = self._commission(order.size, price) * self.last_conversion_rate
             adjusted_price_plus_commission = adjusted_price + commission
             
@@ -1215,7 +1215,6 @@ class Backtest:
                  hedging=False,
                  exclusive_orders=False,
                  finalize_trades=False,
-                 account_currency:str=None
                  ):
         
         if not (isinstance(strategy, type) and issubclass(strategy, Strategy)):
@@ -1230,8 +1229,6 @@ class Backtest:
                             'a tuple of `(fixed, relative)` commission, '
                             'or a function that takes `(order_size, price)`'
                             'and returns commission dollar value')
-        if not isinstance(account_currency, str):
-            raise TypeError('`account_currency` must be a str')
 
         data = data.copy(deep=False)
 
@@ -1248,9 +1245,6 @@ class Backtest:
 
         if 'Volume' not in data:
             data['Volume'] = np.nan
-
-        if account_currency and 'ConversionRate' not in data:
-            raise ValueError("'ConversionRate' is required in the dataframe when 'account_currency' is specified.")
 
         if 'ConversionRate' not in data:
             data['ConversionRate'] = 1
@@ -1286,7 +1280,6 @@ class Backtest:
         self._strategy = strategy
         self._results: Optional[pd.Series] = None
         self._finalize_trades = bool(finalize_trades)
-        self.account_currency=account_currency
 
     def run(self, **kwargs) -> pd.Series:
         """
