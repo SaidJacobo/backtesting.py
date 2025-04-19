@@ -237,6 +237,10 @@ class _Data:
         return self.__get_array('Volume')
 
     @property
+    def ConversionRate(self) -> _Array:
+        return self.__get_array('ConversionRate')
+
+    @property
     def index(self) -> pd.DatetimeIndex:
         return self.__get_array('__index')
 

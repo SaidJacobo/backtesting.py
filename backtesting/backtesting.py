@@ -372,7 +372,15 @@ class Position:
     @property
     def pl_pct(self) -> float:
         """Profit (positive) or loss (negative) of the current position in percent."""
-        total_invested = sum(trade.entry_price * abs(trade.size) for trade in self.__broker.trades)
+        total_invested = 0
+        for trade in self.__broker.trades:
+            entry_value = trade.entry_price * abs(trade.size)
+
+            rate = self.__broker.conversion_rate[trade.entry_bar]
+            entry_value *= rate
+
+            total_invested += entry_value
+
         return (self.pl / total_invested) * 100 if total_invested else 0
 
     @property
@@ -673,19 +681,32 @@ class Trade:
     def pl(self):
         """Trade profit (positive) or loss (negative) in cash units."""
         price = self.__exit_price or self.__broker.last_price
-        return self.__size * (price - self.__entry_price)
+        rate = self.__broker.conversion_rate[self.__exit_bar or -1]
 
+        return self.__size * (price - self.__entry_price) * rate
+    
     @property
     def pl_pct(self):
         """Trade profit (positive) or loss (negative) in percent."""
         price = self.__exit_price or self.__broker.last_price
-        return copysign(1, self.__size) * (price / self.__entry_price - 1)
+        entry = self.__entry_price
+        rate_now = self.__broker.conversion_rate[self.__exit_bar or -1]
+        rate_entry = self.__broker.conversion_rate[self.entry_bar]
+
+        # Precio convertido a moneda base
+        price_converted = price * rate_now
+        entry_converted = entry * rate_entry
+
+        return copysign(1, self.__size) * (price_converted / entry_converted - 1)
 
     @property
     def value(self):
         """Trade total value in cash (volume × price)."""
         price = self.__exit_price or self.__broker.last_price
-        return abs(self.__size) * price
+        value = abs(self.__size) * price
+
+        rate = self.__broker.last_conversion_rate
+        return value * rate
 
     # SL/TP management API
 
@@ -766,7 +787,8 @@ class _Broker:
         self.closed_trades: List[Trade] = []
 
     def _commission_func(self, order_size, price):
-        return self._commission_fixed + abs(order_size) * price * self._commission_relative
+        commission = self._commission_fixed + abs(order_size) * price * self._commission_relative
+        return commission
 
     def __repr__(self):
         return f'<Broker: {self._cash:.0f}{self.position.pl:+.1f} ({len(self.trades)} trades)>'
@@ -825,6 +847,16 @@ class _Broker:
     def last_price(self) -> float:
         """ Price at the last (current) close. """
         return self._data.Close[-1]
+    
+    @property
+    def last_conversion_rate(self) -> float:
+        """ Price at the last (current) close. """
+        return self._data.ConversionRate[-1]
+    
+    @property
+    def conversion_rate(self) -> float:
+        """ Price at the last (current) close. """
+        return self._data.ConversionRate
 
     def _adjusted_price(self, size=None, price=None) -> float:
         """
@@ -940,8 +972,10 @@ class _Broker:
 
             # Adjust price to include commission (or bid-ask spread).
             # In long positions, the adjusted price is a fraction higher, and vice versa.
-            adjusted_price = self._adjusted_price(order.size, price)
-            adjusted_price_plus_commission = adjusted_price + self._commission(order.size, price)
+            adjusted_price = self._adjusted_price(order.size, price) * self.last_conversion_rate
+            commission = self._commission(order.size, price) * self.last_conversion_rate
+            adjusted_price_plus_commission = adjusted_price + commission
+            
 
             # If order size was specified proportionally,
             # precompute true size in units, accounting for margin and spread/commissions
@@ -1060,10 +1094,12 @@ class _Broker:
         closed_trade = trade._replace(exit_price=price, exit_bar=time_index)
         self.closed_trades.append(closed_trade)
         # Apply commission one more time at trade exit
-        commission = self._commission(trade.size, price)
+        conversion_rate = self.conversion_rate[time_index]
+        commission = self._commission(trade.size, price) * conversion_rate
         self._cash += trade.pl - commission
         # Save commissions on Trade instance for stats
-        trade_open_commission = self._commission(closed_trade.size, closed_trade.entry_price)
+        conversion_rate = self.conversion_rate[closed_trade.entry_bar]
+        trade_open_commission = self._commission(closed_trade.size, closed_trade.entry_price) * conversion_rate
         # applied here instead of on Trade open because size could have changed
         # by way of _reduce_trade()
         closed_trade._commissions = commission + trade_open_commission
@@ -1073,7 +1109,9 @@ class _Broker:
         trade = Trade(self, size, price, time_index, tag)
         self.trades.append(trade)
         # Apply broker commission at trade open
-        self._cash -= self._commission(size, price)
+        conversion_rate = self.conversion_rate[trade.entry_bar]
+        commission = self._commission(size, price) * conversion_rate
+        self._cash -= commission
         # Create SL/TP (bracket) orders.
         if tp:
             trade.tp = tp
@@ -1177,7 +1215,9 @@ class Backtest:
                  hedging=False,
                  exclusive_orders=False,
                  finalize_trades=False,
+                 account_currency:str=None
                  ):
+        
         if not (isinstance(strategy, type) and issubclass(strategy, Strategy)):
             raise TypeError('`strategy` must be a Strategy sub-type')
         if not isinstance(data, pd.DataFrame):
@@ -1190,6 +1230,8 @@ class Backtest:
                             'a tuple of `(fixed, relative)` commission, '
                             'or a function that takes `(order_size, price)`'
                             'and returns commission dollar value')
+        if not isinstance(account_currency, str):
+            raise TypeError('`account_currency` must be a str')
 
         data = data.copy(deep=False)
 
@@ -1207,11 +1249,17 @@ class Backtest:
         if 'Volume' not in data:
             data['Volume'] = np.nan
 
+        if account_currency and 'ConversionRate' not in data:
+            raise ValueError("'ConversionRate' is required in the dataframe when 'account_currency' is specified.")
+
+        if 'ConversionRate' not in data:
+            data['ConversionRate'] = 1
+
         if len(data) == 0:
             raise ValueError('OHLC `data` is empty')
-        if len(data.columns.intersection({'Open', 'High', 'Low', 'Close', 'Volume'})) != 5:
+        if len(data.columns.intersection({'Open', 'High', 'Low', 'Close', 'Volume', 'ConversionRate'})) != 6:
             raise ValueError("`data` must be a pandas.DataFrame with columns "
-                             "'Open', 'High', 'Low', 'Close', and (optionally) 'Volume'")
+                             "'Open', 'High', 'Low', 'Close', (optionally) 'Volume', (optionally) 'ConversionRate'")
         if data[['Open', 'High', 'Low', 'Close']].isnull().values.any():
             raise ValueError('Some OHLC values are missing (NaN). '
                              'Please strip those lines with `df.dropna()` or '
@@ -1229,7 +1277,6 @@ class Backtest:
             warnings.warn('Data index is not datetime. Assuming simple periods, '
                           'but `pd.DateTimeIndex` is advised.',
                           stacklevel=2)
-
         self._data: pd.DataFrame = data
         self._broker = partial(
             _Broker, cash=cash, spread=spread, commission=commission, margin=margin,
@@ -1239,6 +1286,7 @@ class Backtest:
         self._strategy = strategy
         self._results: Optional[pd.Series] = None
         self._finalize_trades = bool(finalize_trades)
+        self.account_currency=account_currency
 
     def run(self, **kwargs) -> pd.Series:
         """
@@ -1732,7 +1780,6 @@ class Backtest:
             reverse_indicators=reverse_indicators,
             show_legend=show_legend,
             open_browser=open_browser)
-
 
 # NOTE: Don't put anything public below this __all__ list
 
