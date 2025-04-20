@@ -974,19 +974,12 @@ class _Broker:
             # In long positions, the adjusted price is a fraction higher, and vice versa.
             adjusted_price = self._adjusted_price(order.size, price)
             
-            currency_converted_adjusted_price = self._adjusted_price(order.size, price * self.last_conversion_rate)
-            commission = self._commission(order.size, price * self.last_conversion_rate)
-            currency_converted_adjusted_price_plus_commission = currency_converted_adjusted_price + commission
-
             # If order size was specified proportionally,
             # precompute true size in units, accounting for margin and spread/commissions
-            
             size = order.size
             if -1 < size < 1:
-                total_capital = int((self.margin_available * self._leverage * abs(size)) // currency_converted_adjusted_price_plus_commission)
+                size = (self.margin_available * self._leverage * abs(size)) // (adjusted_price * self.last_conversion_rate)                # size = copysign(total_capital, size)
 
-                size = copysign(total_capital, size)
-                # Not enough cash/margin even for a single unit
                 if not size:
                     warnings.warn(
                         f'time={self._i}: Broker canceled the relative-sized '
@@ -994,7 +987,12 @@ class _Broker:
                     # XXX: The order is canceled by the broker?
                     self.orders.remove(order)
                     continue
+            
             assert size == round(size)
+
+            currency_converted_adjusted_price = self._adjusted_price(order.size, price * self.last_conversion_rate)
+            commission = self._commission(size, price * self.last_conversion_rate)
+
             need_size = int(size)
 
             if not self._hedging:
@@ -1022,8 +1020,11 @@ class _Broker:
 
             # If we don't have enough liquidity to cover for the order, the broker CANCELS it
             # if abs(need_size) * currency_converted_adjusted_price_plus_commission > \
-            if abs(need_size * currency_converted_adjusted_price) + commission > \
-                    self.margin_available * self._leverage:
+            total_money_volume = abs(need_size * currency_converted_adjusted_price) + commission
+            if total_money_volume > self.margin_available * self._leverage:
+                warnings.warn(
+                    f'time={self._i}: Broker canceled the relative-sized '
+                    f'order due to insufficient margin.', category=UserWarning)
                 self.orders.remove(order)
                 continue
 
