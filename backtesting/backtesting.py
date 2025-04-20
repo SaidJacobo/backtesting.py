@@ -973,16 +973,19 @@ class _Broker:
             # Adjust price to include commission (or bid-ask spread).
             # In long positions, the adjusted price is a fraction higher, and vice versa.
             adjusted_price = self._adjusted_price(order.size, price)
-            commission = self._commission(order.size, price) * self.last_conversion_rate
-            adjusted_price_plus_commission = adjusted_price + commission
             
+            currency_converted_adjusted_price = self._adjusted_price(order.size, price * self.last_conversion_rate)
+            commission = self._commission(order.size, price * self.last_conversion_rate)
+            currency_converted_adjusted_price_plus_commission = currency_converted_adjusted_price + commission
 
             # If order size was specified proportionally,
             # precompute true size in units, accounting for margin and spread/commissions
+            
             size = order.size
             if -1 < size < 1:
-                size = copysign(int((self.margin_available * self._leverage * abs(size))
-                                    // adjusted_price_plus_commission), size)
+                total_capital = int((self.margin_available * self._leverage * abs(size)) // currency_converted_adjusted_price_plus_commission)
+
+                size = copysign(total_capital, size)
                 # Not enough cash/margin even for a single unit
                 if not size:
                     warnings.warn(
@@ -1018,7 +1021,8 @@ class _Broker:
                         break
 
             # If we don't have enough liquidity to cover for the order, the broker CANCELS it
-            if abs(need_size) * adjusted_price_plus_commission > \
+            # if abs(need_size) * currency_converted_adjusted_price_plus_commission > \
+            if abs(need_size * currency_converted_adjusted_price) + commission > \
                     self.margin_available * self._leverage:
                 self.orders.remove(order)
                 continue
