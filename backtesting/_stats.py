@@ -70,9 +70,11 @@ def compute_stats(
             'ReturnPct': [t.pl_pct for t in trades],
             'EntryTime': [t.entry_time for t in trades],
             'ExitTime': [t.exit_time for t in trades],
+            'Commission': [t.commission for t in trades],
         })
         trades_df['Duration'] = trades_df['ExitTime'] - trades_df['EntryTime']
         trades_df['Tag'] = [t.tag for t in trades]
+        trades_df['NetPnL'] = trades_df['PnL'] - trades_df['Commission']
 
         # Add indicator values
         if len(trades_df) and strategy_instance:

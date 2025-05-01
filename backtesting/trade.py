@@ -196,3 +196,8 @@ class Trade:
             kwargs = {'stop': price} if type == 'sl' else {'limit': price}
             order = self.__broker.new_order(-self.size, trade=self, tag=self.tag, **kwargs)
             setattr(self, attr, order)
+    
+    @property
+    def commission(self) -> float:
+        """Trade commission"""
+        return self._commissions

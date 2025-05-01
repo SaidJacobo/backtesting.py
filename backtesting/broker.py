@@ -361,14 +361,17 @@ class _Broker:
 
         closed_trade = trade._replace(exit_price=price, exit_bar=time_index)
         self.closed_trades.append(closed_trade)
+        
         # Apply commission one more time at trade exit
         conversion_rate = self.conversion_rate[time_index]
         commission = self._commission(trade.size, price) * conversion_rate
         self._cash += trade.pl - commission
+        
         # Save commissions on Trade instance for stats
         conversion_rate = self.conversion_rate[closed_trade.entry_bar]
-        trade_open_commission = self._commission(closed_trade.size, closed_trade.entry_price) * conversion_rate
+        
         # applied here instead of on Trade open because size could have changed
+        trade_open_commission = self._commission(closed_trade.size, closed_trade.entry_price) * conversion_rate
         # by way of _reduce_trade()
         closed_trade._commissions = commission + trade_open_commission
 
