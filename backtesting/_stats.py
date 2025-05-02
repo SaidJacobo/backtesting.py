@@ -71,6 +71,8 @@ def compute_stats(
             'EntryTime': [t.entry_time for t in trades],
             'ExitTime': [t.exit_time for t in trades],
             'Commission': [t.commission for t in trades],
+            'EntryConversionRate': [t.entry_conversion_rate for t in trades],
+            'ExitConversionRate': [t.exit_conversion_rate for t in trades],
         })
         trades_df['Duration'] = trades_df['ExitTime'] - trades_df['EntryTime']
         trades_df['Tag'] = [t.tag for t in trades]

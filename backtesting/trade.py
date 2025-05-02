@@ -26,6 +26,8 @@ class Trade:
         self.__tp_order: Optional[Order] = None
         self.__tag = tag
         self._commissions = 0
+        self.__entry_conversion_rate = self.__broker.conversion_rate[entry_bar]
+        self.__exit_conversion_rate: Optional[float] = None
 
     def __repr__(self):
         return f'<Trade size={self.__size} time={self.__entry_bar}-{self.__exit_bar or ""} ' \
@@ -201,3 +203,13 @@ class Trade:
     def commission(self) -> float:
         """Trade commission"""
         return self._commissions
+    
+    @property
+    def entry_conversion_rate(self) -> float:
+        """Trade entry conversion rate"""
+        return self.__entry_conversion_rate
+    
+    @property
+    def exit_conversion_rate(self) -> float:
+        """Trade exit conversion rate"""
+        return self.__exit_conversion_rate
