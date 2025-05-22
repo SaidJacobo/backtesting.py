@@ -191,7 +191,7 @@ class Backtest:
         self._results: Optional[pd.Series] = None
         self._finalize_trades = bool(finalize_trades)
 
-    def run(self, **kwargs) -> pd.Series:
+    def run(self, risk_free_rate=0.0, **kwargs) -> pd.Series:
         """
         Run the backtest. Returns `pd.Series` with results and statistics.
 
@@ -295,7 +295,7 @@ class Backtest:
                 trades=broker.closed_trades,
                 equity=equity,
                 ohlc_data=self._data,
-                risk_free_rate=0.0,
+                risk_free_rate=risk_free_rate,
                 strategy_instance=strategy,
             )
 
